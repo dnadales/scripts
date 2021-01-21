@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+##
+## This script will generate a graph of the dependencies between the modules
+## that are found in the given paths.
+##
+## Examples
+##
+## > modules-deps path/to/haskell/files
+## > modules-deps path/to/haskell/files another/path
+##
+## By defalult the filename of the resulting diagram will default to a name of
+## the form:
+##
+## > "${PREFIX}"modules-deps-"${SUFFIX}"
+##
+## Where the prefix is some default string and the suffix is the date of the
+## current git commit.
+##
+## This script assumes:
+##
+## - The following programs are installed
+##   - graphmod
+##   - dot
+## - The current working directory is a git repository
+##
+set -euo pipefail
+
+##
+## Command line arguments parsing
+##
+
+# Check that getopt works
+# allow a command to fail with !’s side effect on errexit
+! getopt --test > /dev/null
+if [[ ${PIPESTATUS[0]} -ne 4 ]]; then
+    echo 'I’m sorry, `getopt --test` failed in this environment.'
+    exit 1
+fi
+
+OPTIONS=p:s:v
+LONGOPTS=prefix:,suffix:,verbose
+
+! PARSED=$(getopt --options=$OPTIONS --longoptions=$LONGOPTS --name "$0" -- "$@")
+if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+    # getopt has complained about wrong arguments to stdout
+    exit 2
+fi
+
+# getopt rearanges the arguments so that non-option arguments come last. We use
+# "eval set" to make them script arguments. In addition this command handles
+# quoting and space inside quotes rigth.
+eval set -- "$PARSED"
+
+PREFIX="project-"
+SUFFIX=`git log -1 --format=%cd --date=local`
+VERBOSE=0
+while true; do
+    case "$1" in
+        -p|--prefix)
+            PREFIX=$2
+            shift 2
+            ;;
+        -s|--suffix)
+            SUFFIX=$2
+            shift 2
+            ;;
+        -v|--verbose)
+            VERBOSE=1
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "Programming error: unexpected '$1'"
+            exit 3
+            ;;
+    esac
+done
+
+if [[ $VERBOSE -eq 1 ]]; then
+  echo "PREFIX: $PREFIX"
+  echo "PREFIX: $SUFFIX"
+  echo "Directories to scan for dependencies: $@"
+fi
+
+# The non-option arguments will be used to search for haskell files. We need at
+# least one.
+if [[ $# -eq 0 ]]; then
+    echo "$0: At least an input file is required."
+    exit 4
+fi
+
+##
+## Elaboration of the intra module dependencies graphs
+##
+
+OUTBASENAME="${PREFIX}"modules-deps-"${SUFFIX}"
+
+# We set the dimension to 0 as a workaround for https://github.com/yav/graphmod/issues/32
+find "$@" -name "*.hs" | xargs graphmod -q  -p -d 0,0 > "${OUTBASENAME}".dot
+
+dot  "${OUTBASENAME}".dot  -Tsvg -o "${OUTBASENAME}".svg
